@@ -6,17 +6,25 @@ import dev.darshit.just.request.ShortenResponse;
 import dev.darshit.just.utils.JsonUtils;
 import dev.darshit.just.utils.StringUtils;
 import dev.darshit.just.utils.Validator;
-import okhttp3.*;
-import org.jetbrains.annotations.NotNull;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 
-import static picocli.CommandLine.*;
+import static picocli.CommandLine.Help;
+import static picocli.CommandLine.Model;
+import static picocli.CommandLine.ParameterException;
+import static picocli.CommandLine.ParseResult;
+import static picocli.CommandLine.Spec;
 
 @Command(name = "just", mixinStandardHelpOptions = true,
         version = "0.0.1",
@@ -54,7 +62,7 @@ class Just implements Callable<String> {
             description = "Use Liberal Hash characters", defaultValue = "false")
     private boolean liberalHash;
 
-    private final OkHttpClient client = new OkHttpClient();
+    private final HttpClient httpClient = HttpClient.newBuilder().build();
 
     @Spec
     Model.CommandSpec spec;
@@ -69,7 +77,12 @@ class Just implements Callable<String> {
         System.exit(exitCode);
     }
 
-    private void validate() {
+    private void validateArgs() {
+        String url = spec.positionalParameters().get(0).getValue();
+        if (!Validator.validateUrl(url)) {
+            throw new ParameterException(spec.commandLine(), String.format("'%s' is not a valid URL", url));
+        }
+
         ParseResult parseResult = spec.commandLine().getParseResult();
 
         List<String> strategies = List.of("word", "hash", "custom", "wordHashCombo");
@@ -110,31 +123,28 @@ class Just implements Callable<String> {
 
     @Override
     public String call() throws Exception {
-        validate();
+        validateArgs();
         ShortenRequest shortenRequest = new ShortenRequest(url, strategy, buildShortenOptions());
 
-        RequestBody requestBody = RequestBody
-                .create(JsonUtils.json(shortenRequest), MediaType.parse("application/json; charset=utf-8"));
-
         String host = !StringUtils.isEmpty(shortenerHost) ? shortenerHost : "https://just.darshit.dev";
-        Request request = new Request.Builder()
-                .url(host + "/shorten")
-                .post(requestBody)
+
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(host + "/shorten"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(JsonUtils.json(shortenRequest), StandardCharsets.UTF_8))
                 .build();
 
-        ShortenResponse shortenResponse = null;
-        try (Response response = client.newCall(request).execute()) {
-            if (response.body() != null) {
-                shortenResponse = JsonUtils.value(response.body().string(), ShortenResponse.class);
-            }
-        }
+        CompletableFuture<ShortenResponse> responseFuture = httpClient
+                .sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .thenApply(res -> JsonUtils.value(res, ShortenResponse.class));
 
+        ShortenResponse shortenResponse = responseFuture.get();
         String response = generateCliResponse(shortenResponse);
         System.out.println(response);
         return response;
     }
 
-    @NotNull
     private String generateCliResponse(ShortenResponse shortenResponse) {
         String response = null;
         if (shortenResponse != null) {
