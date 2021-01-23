@@ -4,7 +4,7 @@ import org.apache.commons.validator.routines.UrlValidator;
 
 import java.util.regex.Pattern;
 
-public class Validator {
+public final class Validator {
 
     private static final UrlValidator URL_VALIDATOR = new UrlValidator(new String[]{"http", "https"});
 
