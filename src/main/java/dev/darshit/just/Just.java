@@ -1,15 +1,10 @@
 package dev.darshit.just;
 
-import dev.darshit.just.request.ShortenOptions;
-import dev.darshit.just.request.ShortenRequest;
-import dev.darshit.just.request.ShortenResponse;
-import dev.darshit.just.utils.JsonUtils;
 import dev.darshit.just.utils.StringUtils;
 import dev.darshit.just.utils.Validator;
+import org.json.JSONObject;
 import picocli.CommandLine;
-import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
-import picocli.CommandLine.Parameters;
+import picocli.CommandLine.*;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -19,12 +14,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-
-import static picocli.CommandLine.Help;
-import static picocli.CommandLine.Model;
-import static picocli.CommandLine.ParameterException;
-import static picocli.CommandLine.ParseResult;
-import static picocli.CommandLine.Spec;
 
 @Command(name = "just", mixinStandardHelpOptions = true,
         version = "0.0.1",
@@ -124,36 +113,38 @@ class Just implements Callable<String> {
     @Override
     public String call() throws Exception {
         validateArgs();
-        ShortenRequest shortenRequest = new ShortenRequest(url, strategy, buildShortenOptions());
+
+        JSONObject shortenRequest = new JSONObject();
+        shortenRequest.put("url", url);
+        shortenRequest.put("strategy", strategy);
+        shortenRequest.put("options", buildShortenOptions());
 
         String host = !StringUtils.isEmpty(shortenerHost) ? shortenerHost : "https://just.darshit.dev";
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(host + "/shorten"))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(JsonUtils.json(shortenRequest), StandardCharsets.UTF_8))
+                .POST(HttpRequest.BodyPublishers.ofString(shortenRequest.toString(), StandardCharsets.UTF_8))
                 .build();
 
-        CompletableFuture<ShortenResponse> responseFuture = httpClient
+        CompletableFuture<String> responseFuture = httpClient
                 .sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenApply(res -> JsonUtils.value(res, ShortenResponse.class));
+                .thenApply(HttpResponse::body);
 
-        ShortenResponse shortenResponse = responseFuture.get();
+        JSONObject shortenResponse = new JSONObject(responseFuture.get());
         String response = generateCliResponse(shortenResponse);
         System.out.println(response);
         return response;
     }
 
-    private String generateCliResponse(ShortenResponse shortenResponse) {
+    private String generateCliResponse(JSONObject shortenResponse) {
         String response = null;
         if (shortenResponse != null) {
-            String shortUrl = shortenResponse.getShortUrl();
-            int ttl = shortenResponse.getTtlInDays();
-            String error = shortenResponse.getError();
-
+            String shortUrl = shortenResponse.optString("shortUrl");
+            int ttl = shortenResponse.optInt("ttl");
+            String error = shortenResponse.optString("error");
             if (!StringUtils.isEmpty(shortUrl)) {
-                response = "Short \uD83D\uDD17: " + shortUrl + " will expire in " + ttl + " days.";
+                response = "Short URL: " + shortUrl + " will expire in " + ttl + " days.";
             } else if (!StringUtils.isEmpty(error)) {
                 response = error;
             } else {
@@ -161,25 +152,25 @@ class Just implements Callable<String> {
             }
         }
 
-        response = response + "\n\n" + "Check out \uD83D\uDD0E https://github.com/darshitpp/url-shortener for more info";
+        response = response + "\n\n" + "Check out https://github.com/darshitpp/url-shortener for more info";
         return response;
     }
 
-    private ShortenOptions buildShortenOptions() {
-        ShortenOptions.Builder options = new ShortenOptions.Builder();
+    private JSONObject buildShortenOptions() {
+        JSONObject shortenOptions = new JSONObject();
         if ("hash".equals(strategy)) {
             if (!StringUtils.isEmpty(customPath)) {
-                options.withCustomPath(customPath);
+                shortenOptions.put("customPath", customPath);
             }
             if (liberalHash) {
-                options.withLiberalHash(true);
+                shortenOptions.put("liberalHash", true);
             }
-            options.withPathSize(urlSize);
+            shortenOptions.put("urlSize", urlSize);
         } else if ("custom".equals(strategy)) {
-            options.withCustomPath(customPath);
+            shortenOptions.put("customPath", customPath);
         }
-        options.withDomain(domain);
-        options.withTtlInDays(ttlInDays);
-        return options.build();
+        shortenOptions.put("domain", domain);
+        shortenOptions.put("ttl", ttlInDays);
+        return shortenOptions;
     }
 }
