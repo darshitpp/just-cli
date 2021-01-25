@@ -52,3 +52,7 @@ Requirements:
 Use [SDKMAN!](https://sdkman.io/) for installing a JDK easily
 
 Use: `mvn clean install` to build the application. However, in case you use a Non-GraalVM vendor for JDK, the `native-image-maven-plugin` will fail (but the JAR will still be created)
+
+## Configuration
+
+You can change the environment variable `URL_SHORTENER_HOST=<domain-where-url-shortener-is-deployed>` to change the domain from `https://just.darshit.dev` to your custom host
